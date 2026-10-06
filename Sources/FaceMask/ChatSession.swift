@@ -784,7 +784,40 @@ struct LineField: NSViewRepresentable {
     }
 }
 
+final class EntryEditor: NSTextView {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if Self.isPaste(event) {
+            paste(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if Self.isPaste(event) {
+            paste(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    private static func isPaste(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              event.charactersIgnoringModifiers?.lowercased() == "v" else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags == .command || flags == .control
+    }
+}
+
 final class EntryField: NSTextField {
+    static let editor: EntryEditor = {
+        let editor = EntryEditor()
+        editor.isFieldEditor = true
+        editor.isRichText = false
+        editor.importsGraphics = false
+        return editor
+    }()
+
     var returnFocusWhenEnabled = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

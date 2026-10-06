@@ -59,7 +59,7 @@ enum FaceSnapshot {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let director: FaceDirector
     private let chat: ChatSession
     private var panel: NSPanel?
@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         chat.onModel = { [weak self] name in
             self?.modelItem?.title = name
         }
+        setupEditMenu()
         setupStatusItem()
         setupPanel()
         director.start()
@@ -93,6 +94,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
+    }
+
+    func windowWillReturnFieldEditor(_ sender: NSWindow, to client: Any?) -> Any? {
+        guard client is EntryField else { return nil }
+        return EntryField.editor
+    }
+
+    private func setupEditMenu() {
+        let main = NSMenu()
+        let editItem = NSMenuItem()
+        main.addItem(editItem)
+        let edit = NSMenu(title: "편집")
+        editItem.submenu = edit
+        edit.addItem(editCommand("오려두기", #selector(NSText.cut(_:)), "x"))
+        edit.addItem(editCommand("복사", #selector(NSText.copy(_:)), "c"))
+        edit.addItem(editCommand("붙여넣기", #selector(NSText.paste(_:)), "v"))
+        edit.addItem(editCommand("모두 선택", #selector(NSText.selectAll(_:)), "a"))
+        NSApp.mainMenu = main
+    }
+
+    private func editCommand(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.keyEquivalentModifierMask = [.command]
+        return item
     }
 
     private func setupStatusItem() {
@@ -158,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isRestorable = false
         panel.title = "FaceMask"
+        panel.delegate = self
 
         let host = ClearHostingView(rootView: FaceScreen(director: director, chat: chat))
         host.toolTip = "얼굴은 드래그해서 옮기기 · 아래 칸에 메시지"
