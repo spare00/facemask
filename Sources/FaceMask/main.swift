@@ -62,16 +62,19 @@ enum FaceSnapshot {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let director: FaceDirector
     private let chat: ChatSession
+    private let looks: FaceLooks
     private var panel: NSPanel?
     private var statusItem: NSStatusItem?
     private var modeItems: [FaceMode: NSMenuItem] = [:]
     private var emotionItems: [Int: NSMenuItem] = [:]
+    private var lookItems: [FaceLook: NSMenuItem] = [:]
     private var modelItem: NSMenuItem?
 
     override init() {
         let director = FaceDirector()
         self.director = director
         chat = ChatSession(director: director)
+        looks = FaceLooks()
         super.init()
     }
 
@@ -151,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         menu.addItem(.separator())
         menu.addItem(emotionMenuItem())
+        menu.addItem(lookMenuItem())
         menu.addItem(.separator())
         let quit = NSMenuItem(
             title: "종료",
@@ -185,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.title = "FaceMask"
         panel.delegate = self
 
-        let host = ClearHostingView(rootView: FaceScreen(director: director, chat: chat))
+        let host = ClearHostingView(rootView: FaceScreen(director: director, chat: chat, looks: looks))
         host.toolTip = "얼굴은 드래그해서 옮기기 · 아래 칸에 메시지"
         host.sizingOptions = [.intrinsicContentSize]
         host.frame = NSRect(origin: .zero, size: size)
@@ -262,6 +266,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func lookMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        for (index, look) in FaceLook.allCases.enumerated() {
+            let item = NSMenuItem(
+                title: look.title,
+                action: #selector(selectLook(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.tag = index
+            item.state = look == looks.current ? .on : .off
+            lookItems[look] = item
+            submenu.addItem(item)
+        }
+        let root = NSMenuItem(title: "얼굴", action: nil, keyEquivalent: "")
+        root.submenu = submenu
+        return root
+    }
+
+    @objc private func selectLook(_ sender: NSMenuItem) {
+        let cases = FaceLook.allCases
+        guard sender.tag >= 0, sender.tag < cases.count else { return }
+        let look = cases[sender.tag]
+        looks.select(look)
+        for (itemLook, item) in lookItems {
+            item.state = itemLook == look ? .on : .off
+        }
+    }
+
     @objc private func selectMode(_ sender: NSMenuItem) {
         guard let mode = FaceMode(rawValue: sender.tag) else { return }
         director.setMode(mode)
@@ -279,8 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             line.curve(to: NSPoint(x: 7.1, y: 12.4), controlPoint1: NSPoint(x: 3.0, y: 15.0), controlPoint2: NSPoint(x: 5.6, y: 14.7))
             line.move(to: NSPoint(x: 16.8, y: 13.2))
             line.curve(to: NSPoint(x: 10.9, y: 12.4), controlPoint1: NSPoint(x: 15.0, y: 15.0), controlPoint2: NSPoint(x: 12.4, y: 14.7))
-            line.appendOval(in: NSRect(x: 1.1, y: 8.5, width: 6.4, height: 3.5))
-            line.appendOval(in: NSRect(x: 10.5, y: 8.5, width: 6.4, height: 3.5))
+            line.appendOval(in: NSRect(x: 1.0, y: 7.8, width: 6.6, height: 5.2))
+            line.appendOval(in: NSRect(x: 10.4, y: 7.8, width: 6.6, height: 5.2))
             line.move(to: NSPoint(x: 6.0, y: 5.5))
             line.curve(
                 to: NSPoint(x: 12.0, y: 5.5),
@@ -300,11 +333,12 @@ final class ClearHostingView<Content: View>: NSHostingView<Content> {
 struct FaceScreen: View {
     @ObservedObject var director: FaceDirector
     @ObservedObject var chat: ChatSession
+    @ObservedObject var looks: FaceLooks
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
-                FaceCanvas(pose: director.pose)
+                FaceCanvas(pose: director.pose, look: looks.current)
                 FaceDragPad(acceptsClick: !chat.busy && !chat.listening) {
                     director.cycle()
                 }
