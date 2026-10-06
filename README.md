@@ -1,56 +1,56 @@
 # facemask
 
-맥 화면 위에 떠 있는 선 얼굴이다. 눈, 눈썹, 코, 입만 그려지고, 로컬 Ollama 모델과 대화한다.
+A line face that floats above the Mac screen. It draws eyes, brows, a nose, and a mouth, and talks with a local Ollama model.
 
-macOS 14 이상이 필요하다. `.env`에 API를 적으면 그 모델을 쓰고, 없으면 이 컴퓨터의 Ollama(`http://127.0.0.1:11434`)를 쓴다.
+macOS 14 or later is required. If `.env` names an API, that model is used. Otherwise the app uses Ollama on this computer (`http://127.0.0.1:11434`).
 
-## 기동
+## Start
 
-터미널에서 이 저장소 폴더로 이동한 뒤 실행한다.
+From a terminal, move into this repository folder and run:
 
 ```bash
 swift run
 ```
 
-켜지면 다음 두 가지가 보인다.
+Two things appear:
 
-- 화면 위에 선으로 된 얼굴
-- 메뉴 막대 오른쪽의 작은 얼굴 아이콘
+- A line face on the screen
+- A small face icon at the right of the menu bar
 
-도크에는 아이콘이 생기지 않는다. 얼굴 창에는 닫기 버튼도 없다. 이미 켜져 있는지는 메뉴 막대의 얼굴 아이콘으로 확인한다. 그 아이콘이 있는데 다시 실행하면 얼굴이 하나 더 뜬다.
+Nothing is added to the Dock. The face window has no close button. The menu-bar icon shows whether the app is already running. Running it again while that icon is present opens another face.
 
-## 종료
+## Quit
 
-1. 화면 맨 위 메뉴 막대에서 작은 얼굴 아이콘을 클릭한다.
-2. 메뉴에서 **종료**를 클릭한다.
+1. Click the small face icon in the menu bar at the top of the screen.
+2. Click **Quit**.
 
-얼굴을 화면 밖으로 옮기거나 다른 앱을 눌러도 앱은 계속 켜져 있다. 종료는 이 메뉴로만 한다. `.env`를 고친 뒤에는 종료하고 다시 기동해야 반영된다.
+Moving the face off screen or switching to another app leaves the app running. Quit only from this menu. After editing `.env`, quit and start the app again.
 
-## 사용
+## Use
 
-얼굴 아래 칸에 메시지를 입력하고 Return을 누른다. 칸 왼쪽 마이크를 누르면 말로 대화할 수 있다. 말을 마치고 잠깐 멈추면 전송되고, 답을 다 읽은 뒤 다시 듣는다. 마이크를 다시 누르면 음성 입력이 끝난다. 말하지 않은 채로 30초가 지나도 끝난다. 처음 누르면 마이크와 음성 인식 권한을 묻는다.
+Type a message in the field under the face and press Return. The microphone on the left starts a spoken conversation. After you pause, the words are sent, and listening starts again once the reply has been read aloud. Press the microphone again to stop voice input. It also stops after 30 seconds of silence. The first press asks for microphone and speech-recognition permission.
 
-- 답을 기다리는 동안은 생각 중이고, 눈썹은 궁금한 표정이다.
-- 답이 오면 첫 줄의 감정으로 눈썹이 바뀌고, 나머지 문장을 읽어 준다. 읽는 동안은 말하는 중이다.
-- 읽기가 끝나면 대기 상태로 돌아간다. 음성으로 보낸 경우에는 다시 듣기 시작한다.
+- While a reply is on the way, the face is thinking and the brows look curious.
+- When a reply arrives, the emotion on the first line changes the brows, and the rest is read aloud. During that, the face is speaking.
+- When reading finishes, the face returns to idle. If you sent the message by voice, it starts listening again.
 
-얼굴 부분을 드래그하면 창이 이동한다. 대화 중이 아닐 때 얼굴을 클릭하면 대기, 생각 중, 말하는 중이 순서대로 바뀐다.
+Drag the face to move the window. When it is not in a conversation, clicking the face cycles through idle, thinking, and speaking.
 
-메뉴의 **감정**에서 표정을 고정할 수 있다. **자동**을 고르면 다시 대화 상태를 따른다.
+**Emotion** in the menu can lock an expression. **Auto** follows the conversation again.
 
-| 감정 | 모습 |
+| Emotion | Look |
 | --- | --- |
-| calm | 평온 |
-| curious | 궁금 |
-| surprised | 놀람 |
-| skeptical | 의심. 한쪽 눈썹이 올라간다 |
-| concerned | 걱정. 눈썹 안쪽이 모인다 |
+| calm | Calm |
+| curious | Curious |
+| surprised | Surprised |
+| skeptical | Skeptical. One brow goes up |
+| concerned | Concerned. The inner brows come together |
 
-모델은 답의 첫 줄에 위 단어 중 하나만 쓰고, 다음 줄부터 할 말을 쓴다.
+The model writes only one of those words on the first line, then the words it will say. Those words are in English.
 
-## 모델
+## Model
 
-저장소 폴더의 `.env`에 API를 적으면 Ollama 대신 그 모델을 쓴다. OpenAI와 같은 형식의 API를 받는다. OpenRouter나 Groq도 이 형식이다.
+An API in the repository `.env` is used instead of Ollama. It accepts the same shape as the OpenAI API. OpenRouter and Groq use that shape too.
 
 ```bash
 AI_BASE_URL=https://api.openai.com/v1
@@ -58,10 +58,10 @@ AI_API_KEY=sk-...
 AI_MODEL=gpt-4o
 ```
 
-`AI_BASE_URL`을 비우면 `https://api.openai.com/v1`을 쓴다. `.env`는 git에 올리지 않는다. 예시만 `.env.example`에 있다. 값을 바꾼 뒤에는 앱을 다시 켠다.
+If `AI_BASE_URL` is empty, the app uses `https://api.openai.com/v1`. `.env` is not committed. Only the example is in `.env.example`. Restart the app after changing the values.
 
-`gpt-5`, `gpt-6` 계열은 최신 정보가 필요한 질문이면 모델이 스스로 웹을 검색한다. 인사처럼 검색이 필요 없는 말에는 검색하지 않는다. 얼굴이 읽는 것은 말로 할 텍스트뿐이고, 코드나 차트는 읽지 않는다.
+`gpt-5` and `gpt-6` models search the web themselves when a question needs current facts. They do not search for talk that does not need it, such as a greeting. The face reads only the spoken text, not code or charts. Replies are in English.
 
-`.env`가 없으면 Ollama를 쓴다. `FACEMASK_MODEL`이 있으면 그 로컬 모델을 고르고, 없으면 설치된 모델 중에서 `qwen3:latest`, `qwen2.5:14b`, `qwen2.5:14b-ctx` 순서로 고른다.
+Without `.env`, the app uses Ollama. `FACEMASK_MODEL` selects that local model. Otherwise it picks the first installed model in this order: `qwen3:latest`, `qwen2.5:14b`, `qwen2.5:14b-ctx`.
 
-Ollama가 꺼져 있거나 키와 모델이 빠지면 얼굴 아래에 짧은 안내가 나온다. 연결된 모델 이름은 메뉴 막대에 표시된다.
+If Ollama is off, or the key or model name is missing, a short note appears under the face. The connected model name is shown in the menu bar.

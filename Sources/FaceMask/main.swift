@@ -108,12 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let main = NSMenu()
         let editItem = NSMenuItem()
         main.addItem(editItem)
-        let edit = NSMenu(title: "편집")
+        let edit = NSMenu(title: "Edit")
         editItem.submenu = edit
-        edit.addItem(editCommand("오려두기", #selector(NSText.cut(_:)), "x"))
-        edit.addItem(editCommand("복사", #selector(NSText.copy(_:)), "c"))
-        edit.addItem(editCommand("붙여넣기", #selector(NSText.paste(_:)), "v"))
-        edit.addItem(editCommand("모두 선택", #selector(NSText.selectAll(_:)), "a"))
+        edit.addItem(editCommand("Cut", #selector(NSText.cut(_:)), "x"))
+        edit.addItem(editCommand("Copy", #selector(NSText.copy(_:)), "c"))
+        edit.addItem(editCommand("Paste", #selector(NSText.paste(_:)), "v"))
+        edit.addItem(editCommand("Select All", #selector(NSText.selectAll(_:)), "a"))
         NSApp.mainMenu = main
     }
 
@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let title = NSMenuItem(title: "FaceMask", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
-        let model = NSMenuItem(title: "모델 연결 중", action: nil, keyEquivalent: "")
+        let model = NSMenuItem(title: "Connecting model", action: nil, keyEquivalent: "")
         model.isEnabled = false
         modelItem = model
         menu.addItem(model)
@@ -157,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(lookMenuItem())
         menu.addItem(.separator())
         let quit = NSMenuItem(
-            title: "종료",
+            title: "Quit",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.delegate = self
 
         let host = ClearHostingView(rootView: FaceScreen(director: director, chat: chat, looks: looks))
-        host.toolTip = "얼굴은 드래그해서 옮기기 · 아래 칸에 메시지"
+        host.toolTip = "Drag the face to move it. Type in the field below."
         host.sizingOptions = [.intrinsicContentSize]
         host.frame = NSRect(origin: .zero, size: size)
         host.autoresizingMask = [.width, .height]
@@ -217,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func emotionMenuItem() -> NSMenuItem {
         let submenu = NSMenu()
-        let auto = emotionItem(title: "자동", tag: -1, selected: director.emotion == nil)
+        let auto = emotionItem(title: "Auto", tag: -1, selected: director.emotion == nil)
         submenu.addItem(auto)
         submenu.addItem(.separator())
         for emotion in FaceEmotion.allCases {
@@ -227,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 selected: director.emotion == emotion
             ))
         }
-        let root = NSMenuItem(title: "감정", action: nil, keyEquivalent: "")
+        let root = NSMenuItem(title: "Emotion", action: nil, keyEquivalent: "")
         root.submenu = submenu
         return root
     }
@@ -280,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             lookItems[look] = item
             submenu.addItem(item)
         }
-        let root = NSMenuItem(title: "얼굴", action: nil, keyEquivalent: "")
+        let root = NSMenuItem(title: "Face", action: nil, keyEquivalent: "")
         root.submenu = submenu
         return root
     }
@@ -371,7 +371,7 @@ struct FaceScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(chat.busy && !chat.voiceSession)
-                .help(chat.voiceSession ? "음성 입력을 끝낸다" : "말로 대화")
+                .help(chat.voiceSession ? "Stop voice input" : "Talk")
 
                 LineField(
                     text: $chat.draft,

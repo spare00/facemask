@@ -26,14 +26,14 @@ final class SpeechListener {
             DispatchQueue.main.async {
                 guard let self, session == self.session, !self.stopped else { return }
                 guard status == .authorized else {
-                    onError("음성 인식 권한이 없습니다. 시스템 설정에서 허용해 주세요.")
+                    onError("Speech recognition is not allowed. Enable it in System Settings.")
                     return
                 }
                 AVCaptureDevice.requestAccess(for: .audio) { allowed in
                     DispatchQueue.main.async {
                         guard session == self.session, !self.stopped else { return }
                         guard allowed else {
-                            onError("마이크 권한이 없습니다. 시스템 설정에서 허용해 주세요.")
+                            onError("Microphone access is not allowed. Enable it in System Settings.")
                             return
                         }
                         self.begin()
@@ -61,14 +61,14 @@ final class SpeechListener {
 
     private func begin() {
         guard let recognizer = Self.recognizer() else {
-            onError?("이 맥에서 음성 인식을 사용할 수 없습니다.")
+            onError?("Speech recognition is not available on this Mac.")
             return
         }
         self.recognizer = recognizer
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            onError?("마이크를 열 수 없습니다.")
+            onError?("Could not open the microphone.")
             return
         }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -81,7 +81,7 @@ final class SpeechListener {
             try engine.start()
         } catch {
             stop()
-            onError?("마이크를 열 수 없습니다.")
+            onError?("Could not open the microphone.")
         }
     }
 
@@ -91,7 +91,7 @@ final class SpeechListener {
         guard restarts <= 8 else {
             let report = onError
             stop()
-            report?("음성을 알아듣지 못했습니다.")
+            report?("Could not understand the speech.")
             return
         }
         task?.cancel()
@@ -115,7 +115,7 @@ final class SpeechListener {
                 }
                 let report = self.onError
                 self.stop()
-                report?("음성을 알아듣지 못했습니다.")
+                report?("Could not understand the speech.")
             }
         }
     }
@@ -127,7 +127,7 @@ final class SpeechListener {
     }
 
     private static func recognizer() -> SFSpeechRecognizer? {
-        let identifiers = ["ko-KR", Locale.current.identifier, "en-US"]
+        let identifiers = ["en-US", Locale.current.identifier]
         for identifier in identifiers {
             guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: identifier)),
                   recognizer.isAvailable else { continue }

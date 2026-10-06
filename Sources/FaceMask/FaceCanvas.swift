@@ -7,9 +7,9 @@ enum FaceLook: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .round: return "큰 눈"
-        case .puppy: return "강아지"
-        case .glasses: return "뿔테"
+        case .round: return "Big eyes"
+        case .puppy: return "Puppy"
+        case .glasses: return "Horn-rims"
         }
     }
 }
@@ -60,15 +60,14 @@ struct FacePreview: View {
     var body: some View {
         VStack(spacing: 28) {
             HStack(alignment: .top, spacing: 28) {
-                column(.round, .idle, "큰 눈")
-                column(.puppy, .idle, "강아지")
-                column(.glasses, .idle, "뿔테")
+                column(.round, .idle, "Big eyes")
+                column(.puppy, .idle, "Puppy")
+                column(.glasses, .idle, "Horn-rims")
             }
             HStack(alignment: .top, spacing: 28) {
-                column(.glasses, .idle, "뿔테")
-                column(.glasses, .speaking, "뿔테 말")
-                column(.glasses, blinkPose, "뿔테 깜빡")
-                column(.glasses, yawnPose, "뿔테 하품")
+                column(.glasses, .speaking, "Horn-rims speaking")
+                column(.glasses, blinkPose, "Horn-rims blink")
+                column(.glasses, yawnPose, "Horn-rims yawn")
             }
         }
         .padding(36)

@@ -217,7 +217,7 @@ enum ChatBackend: Equatable {
         guard let key else { throw ChatError.missingAPIKey }
         guard let model else { throw ChatError.missingModelName }
         guard let endpoint = chatURL(base ?? "https://api.openai.com/v1") else {
-            throw ChatError.server("API 주소가 올바르지 않습니다")
+            throw ChatError.server("The API address is not valid")
         }
         return .api(endpoint: endpoint, apiKey: key, model: model)
     }
@@ -240,10 +240,10 @@ enum OllamaClient {
     private static let preferred = ["qwen3:latest", "qwen2.5:14b", "qwen2.5:14b-ctx"]
 
     static let systemPrompt = """
-    너는 얼굴이 있는 대화 상대다. 답은 항상 이 형식만 지킨다.
-    첫 줄은 감정 단어 하나뿐이다. 다음 중 하나만 쓴다: calm, curious, surprised, skeptical, concerned
-    그 다음 줄부터 할 말을 쓴다. 한두 문장, 짧게, 한국어로.
-    첫 줄에는 감정 단어 외에 아무것도 쓰지 않는다.
+    You are a face the user talks to. Always answer in this format only.
+    The first line is one emotion word and nothing else. Use only one of: calm, curious, surprised, skeptical, concerned
+    From the next line, write what you will say. One or two short sentences, in English.
+    Do not put anything except the emotion word on the first line.
     """
 
     static func resolveModel() async throws -> String {
@@ -285,7 +285,7 @@ enum OllamaClient {
         }
         guard let http = response as? HTTPURLResponse else { throw ChatError.ollamaDown }
         guard http.statusCode == 200 else {
-            throw ChatError.server("모델 응답을 읽지 못했습니다")
+            throw ChatError.server("Could not read the model response")
         }
         let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
         let content = decoded.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,12 +398,12 @@ private enum APIClient {
         let body = ResponsesBody(
             model: model,
             instructions: """
-            너는 얼굴이 있는 대화 상대다. 답은 speech에 넣을 말만 텍스트로 쓴다.
-            speech는 끝까지 마친 문장으로 된 평범한 텍스트다. 코드, 차트, 표, 목록, 제목, 주소, 마크다운은 넣지 않는다.
-            emotion은 calm, curious, surprised, skeptical, concerned 중 하나다.
-            최신 사실, 뉴스, 날씨, 시세처럼 지금 확인이 필요한 질문이면 웹 검색을 한다.
-            이미 아는 일상 대화에는 검색하지 않는다.
-            검색 결과는 판단에만 쓰고, speech에는 상대에게 할 말만 남긴다.
+            You are a face the user talks to. Reply in English. Put only the words you will speak into speech.
+            speech is plain text made of finished sentences. Do not include code, charts, tables, lists, headings, URLs, or markdown.
+            emotion is one of calm, curious, surprised, skeptical, concerned.
+            Search the web when the question needs current facts, news, weather, or prices.
+            Do not search for ordinary conversation you already know.
+            Use search results only to decide what to say. Leave only the spoken reply in speech.
             """,
             input: history,
             tools: [ResponsesBody.Tool()],
@@ -467,7 +467,7 @@ private enum APIClient {
         let text = (decoded ?? String(data: data, encoding: .utf8) ?? "")
             .replacingOccurrences(of: secret, with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { return "모델 응답을 읽지 못했습니다" }
+        if text.isEmpty { return "Could not read the model response" }
         return String(text.prefix(90))
     }
 }
@@ -576,7 +576,7 @@ private struct ResponsesBody: Encodable {
 
         struct SpeechField: Encodable {
             var type = "string"
-            var description = "상대에게 소리 내어 할 말. 끝까지 마친 문장으로 된 평범한 텍스트. 코드, 차트, 표, 목록, 주소, 마크다운은 넣지 않는다."
+            var description = "The words to speak aloud, in English. Plain text of finished sentences. Do not include code, charts, tables, lists, URLs, or markdown."
         }
     }
 
@@ -719,7 +719,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
     private func startListen() {
         guard voiceSession, !busy, !listening else { return }
         listening = true
-        note = "듣는 중"
+        note = "Listening"
         draft = ""
         speech.stopSpeaking(at: .immediate)
         director.setMode(.idle)
@@ -791,7 +791,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
             guard let self, self.listening else { return }
             if self.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.endVoiceSession()
-                self.note = "음성 입력을 마쳤습니다"
+                self.note = "Voice input ended"
                 self.scheduleClearNote()
                 return
             }
@@ -844,9 +844,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         busy = false
         let utterance = AVSpeechUtterance(string: speech)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        if speech.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
-            utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
-        }
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         self.speech.speak(utterance)
         let estimate = min(40, Double(speech.count) * 0.28 + 1.5)
         DispatchQueue.main.asyncAfter(deadline: .now() + estimate) { [weak self] in
@@ -898,25 +896,25 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
 
     private static func note(for error: Error) -> String {
         guard let error = error as? ChatError else {
-            return "답을 받지 못했습니다"
+            return "No reply came back"
         }
         switch error {
         case .ollamaDown:
-            return "Ollama가 실행 중이 아닙니다"
+            return "Ollama is not running"
         case .apiDown:
-            return "API에 연결하지 못했습니다"
+            return "Could not reach the API"
         case .timedOut:
-            return "응답이 너무 오래 걸립니다"
+            return "The response took too long"
         case .noModel:
-            return "설치된 모델이 없습니다"
+            return "No model is installed"
         case .empty:
-            return "빈 응답이 왔습니다"
+            return "The response was empty"
         case .unauthorized:
-            return "API 키가 올바르지 않습니다"
+            return "The API key is not valid"
         case .missingAPIKey:
-            return "AI_API_KEY가 없습니다"
+            return "AI_API_KEY is missing"
         case .missingModelName:
-            return "AI_MODEL이 없습니다"
+            return "AI_MODEL is missing"
         case .server(let detail):
             return detail
         }
@@ -943,7 +941,7 @@ struct LineField: NSViewRepresentable {
         field.textColor = .white
         field.appearance = NSAppearance(named: .darkAqua)
         field.placeholderAttributedString = NSAttributedString(
-            string: "메시지",
+            string: "Message",
             attributes: [
                 .foregroundColor: NSColor.white.withAlphaComponent(0.55),
                 .font: NSFont.systemFont(ofSize: 13)

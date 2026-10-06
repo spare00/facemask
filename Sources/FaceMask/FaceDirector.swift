@@ -9,9 +9,9 @@ enum FaceMode: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .idle: return "대기"
-        case .thinking: return "생각 중"
-        case .speaking: return "말하는 중"
+        case .idle: return "Idle"
+        case .thinking: return "Thinking"
+        case .speaking: return "Speaking"
         }
     }
 }
@@ -34,27 +34,27 @@ enum FaceEmotion: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .calm: return "평온"
-        case .curious: return "궁금"
-        case .surprised: return "놀람"
-        case .skeptical: return "의심"
-        case .concerned: return "걱정"
+        case .calm: return "Calm"
+        case .curious: return "Curious"
+        case .surprised: return "Surprised"
+        case .skeptical: return "Skeptical"
+        case .concerned: return "Concerned"
         }
     }
 
     static func parse(_ raw: String) -> FaceEmotion? {
         var text = raw.lowercased().replacingOccurrences(of: "*", with: "")
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["emotion:", "감정:", "feeling:"] where text.hasPrefix(prefix) {
+        for prefix in ["emotion:", "feeling:"] where text.hasPrefix(prefix) {
             text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
         }
         text = text.trimmingCharacters(in: CharacterSet.punctuationCharacters)
         switch text {
-        case "calm", "평온", "neutral": return .calm
-        case "curious", "궁금", "curiosity": return .curious
-        case "surprised", "놀람", "surprise": return .surprised
-        case "skeptical", "의심", "doubt", "skeptic": return .skeptical
-        case "concerned", "걱정", "worry", "worried": return .concerned
+        case "calm", "neutral": return .calm
+        case "curious", "curiosity": return .curious
+        case "surprised", "surprise": return .surprised
+        case "skeptical", "doubt", "skeptic": return .skeptical
+        case "concerned", "worry", "worried": return .concerned
         default: return nil
         }
     }
