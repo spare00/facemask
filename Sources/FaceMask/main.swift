@@ -275,13 +275,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             line.lineWidth = 1.35
             line.lineCapStyle = .round
             line.lineJoinStyle = .round
-            line.appendOval(in: NSRect(x: 1.6, y: 8.2, width: 5.4, height: 4.2))
-            line.appendOval(in: NSRect(x: 11.0, y: 8.2, width: 5.4, height: 4.2))
-            line.move(to: NSPoint(x: 4.2, y: 5.4))
+            line.move(to: NSPoint(x: 1.2, y: 13.2))
+            line.curve(to: NSPoint(x: 7.1, y: 12.4), controlPoint1: NSPoint(x: 3.0, y: 15.0), controlPoint2: NSPoint(x: 5.6, y: 14.7))
+            line.move(to: NSPoint(x: 16.8, y: 13.2))
+            line.curve(to: NSPoint(x: 10.9, y: 12.4), controlPoint1: NSPoint(x: 15.0, y: 15.0), controlPoint2: NSPoint(x: 12.4, y: 14.7))
+            line.appendOval(in: NSRect(x: 1.1, y: 8.5, width: 6.4, height: 3.5))
+            line.appendOval(in: NSRect(x: 10.5, y: 8.5, width: 6.4, height: 3.5))
+            line.move(to: NSPoint(x: 6.0, y: 5.5))
             line.curve(
-                to: NSPoint(x: 13.8, y: 5.4),
-                controlPoint1: NSPoint(x: 6.4, y: 2.2),
-                controlPoint2: NSPoint(x: 11.6, y: 2.2)
+                to: NSPoint(x: 12.0, y: 5.5),
+                controlPoint1: NSPoint(x: 7.4, y: 3.6),
+                controlPoint2: NSPoint(x: 10.6, y: 3.6)
             )
             line.stroke()
             return true
