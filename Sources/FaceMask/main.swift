@@ -309,7 +309,11 @@ struct FaceScreen: View {
                 .disabled(chat.busy && !chat.voiceSession)
                 .help(chat.voiceSession ? "음성 입력을 끝낸다" : "말로 대화")
 
-                LineField(text: $chat.draft, isEnabled: !chat.busy && !chat.listening) {
+                LineField(
+                    text: $chat.draft,
+                    isEnabled: !chat.busy && !chat.listening,
+                    restoresFocus: !chat.voiceSession
+                ) {
                     chat.send()
                 }
                 .frame(height: 20)

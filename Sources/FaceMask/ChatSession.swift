@@ -670,6 +670,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
 struct LineField: NSViewRepresentable {
     @Binding var text: String
     var isEnabled: Bool
+    var restoresFocus: Bool
     var onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -710,10 +711,17 @@ struct LineField: NSViewRepresentable {
         if field.stringValue != text {
             field.stringValue = text
         }
+        if !isEnabled && field.isEnabled {
+            field.returnFocusWhenEnabled = restoresFocus && field.window?.isKeyWindow == true
+        }
         let becameEnabled = isEnabled && !field.isEnabled
         field.isEnabled = isEnabled
         if becameEnabled {
-            field.restoreFocus()
+            let shouldRestore = restoresFocus && field.returnFocusWhenEnabled
+            field.returnFocusWhenEnabled = false
+            if shouldRestore {
+                field.restoreFocus()
+            }
         }
     }
 
@@ -736,6 +744,8 @@ struct LineField: NSViewRepresentable {
 }
 
 final class EntryField: NSTextField {
+    var returnFocusWhenEnabled = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
