@@ -39,12 +39,150 @@ enum ReplyParser {
     }
 }
 
-enum OllamaError: Error {
-    case unreachable
+enum ChatError: Error {
+    case ollamaDown
+    case apiDown
     case timedOut
     case noModel
     case empty
+    case unauthorized
+    case missingAPIKey
+    case missingModelName
     case server(String)
+}
+
+enum AppEnv {
+    static func string(_ key: String) -> String? {
+        if let live = cleaned(ProcessInfo.processInfo.environment[key]) {
+            return live
+        }
+        return cleaned(fileValues[key])
+    }
+
+    private static let fileValues: [String: String] = loadFile()
+
+    private static func cleaned(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private static func loadFile() -> [String: String] {
+        guard let url = findFile(),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return [:]
+        }
+        var values: [String: String] = [:]
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            var line = String(rawLine).trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("export ") {
+                line.removeFirst("export ".count)
+                line = line.trimmingCharacters(in: .whitespaces)
+            }
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            guard let eq = line.firstIndex(of: "=") else { continue }
+            let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            let value = parseValue(String(line[line.index(after: eq)...]))
+            if !key.isEmpty {
+                values[key] = value
+            }
+        }
+        return values
+    }
+
+    private static func parseValue(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespaces)
+        if value.count >= 2, let quote = value.first, quote == "\"" || quote == "'", value.last == quote {
+            value.removeFirst()
+            value.removeLast()
+            return value
+        }
+        if let hash = value.range(of: " #") {
+            value = String(value[..<hash.lowerBound])
+        }
+        return value.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func findFile() -> URL? {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        if let found = walk(cwd) { return found }
+        let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        return walk(executable.deletingLastPathComponent())
+    }
+
+    private static func walk(_ directory: URL) -> URL? {
+        var dir = directory.standardizedFileURL
+        for _ in 0..<10 {
+            let candidate = dir.appendingPathComponent(".env")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { return nil }
+            dir = parent
+        }
+        return nil
+    }
+}
+
+enum ChatBackend: Equatable {
+    case ollama(model: String)
+    case api(endpoint: URL, apiKey: String, model: String)
+
+    var label: String {
+        switch self {
+        case .ollama(let model), .api(_, _, let model):
+            return model
+        }
+    }
+
+    static func resolve() async throws -> ChatBackend {
+        if let api = try configuredAPI() {
+            return api
+        }
+        let model = try await OllamaClient.resolveModel()
+        return .ollama(model: model)
+    }
+
+    func complete(history: [OllamaMessage]) async throws -> String {
+        switch self {
+        case .ollama(let model):
+            return try await OllamaClient.complete(model: model, history: history)
+        case .api(let endpoint, let apiKey, let model):
+            return try await APIClient.complete(
+                endpoint: endpoint,
+                apiKey: apiKey,
+                model: model,
+                history: history
+            )
+        }
+    }
+
+    private static func configuredAPI() throws -> ChatBackend? {
+        let key = AppEnv.string("AI_API_KEY")
+        let model = AppEnv.string("AI_MODEL")
+        let base = AppEnv.string("AI_BASE_URL")
+        if key == nil, model == nil, base == nil {
+            return nil
+        }
+        guard let key else { throw ChatError.missingAPIKey }
+        guard let model else { throw ChatError.missingModelName }
+        guard let endpoint = chatURL(base ?? "https://api.openai.com/v1") else {
+            throw ChatError.server("API 주소가 올바르지 않습니다")
+        }
+        return .api(endpoint: endpoint, apiKey: key, model: model)
+    }
+
+    private static func chatURL(_ base: String) -> URL? {
+        var root = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        while root.hasSuffix("/") {
+            root.removeLast()
+        }
+        if root.hasSuffix("/chat/completions") {
+            return URL(string: root)
+        }
+        return URL(string: root + "/chat/completions")
+    }
 }
 
 enum OllamaClient {
@@ -67,7 +205,7 @@ enum OllamaClient {
         for name in preferred where names.contains(name) {
             return name
         }
-        guard let first = names.first else { throw OllamaError.noModel }
+        guard let first = names.first else { throw ChatError.noModel }
         return first
     }
 
@@ -92,18 +230,17 @@ enum OllamaClient {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let error as URLError where error.code == .timedOut {
-            throw OllamaError.timedOut
+            throw ChatError.timedOut
         } catch {
-            throw OllamaError.unreachable
+            throw ChatError.ollamaDown
         }
-        guard let http = response as? HTTPURLResponse else { throw OllamaError.unreachable }
+        guard let http = response as? HTTPURLResponse else { throw ChatError.ollamaDown }
         guard http.statusCode == 200 else {
-            let detail = String(data: data, encoding: .utf8) ?? ""
-            throw OllamaError.server(detail)
+            throw ChatError.server("모델 응답을 읽지 못했습니다")
         }
         let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
         let content = decoded.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty else { throw OllamaError.empty }
+        guard !content.isEmpty else { throw ChatError.empty }
         return content
     }
 
@@ -112,7 +249,7 @@ enum OllamaClient {
         do {
             (data, _) = try await URLSession.shared.data(from: tagsURL)
         } catch {
-            throw OllamaError.unreachable
+            throw ChatError.ollamaDown
         }
         let decoded = try JSONDecoder().decode(TagsResponse.self, from: data)
         return decoded.models.map(\.name)
@@ -155,6 +292,90 @@ private struct ChatResponse: Decodable {
     var message: Message
 }
 
+private enum APIClient {
+    static func complete(
+        endpoint: URL,
+        apiKey: String,
+        model: String,
+        history: [OllamaMessage]
+    ) async throws -> String {
+        var messages = [OllamaMessage(role: "system", content: OllamaClient.systemPrompt)]
+        messages.append(contentsOf: history)
+        let body = APIChatBody(model: model, messages: messages, temperature: 0.7, maxTokens: 400)
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw ChatError.timedOut
+        } catch {
+            throw ChatError.apiDown
+        }
+        guard let http = response as? HTTPURLResponse else { throw ChatError.apiDown }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw ChatError.unauthorized
+        }
+        guard http.statusCode == 200 else {
+            throw ChatError.server(APIClient.message(from: data, hiding: apiKey))
+        }
+        let decoded = try JSONDecoder().decode(APIChatResponse.self, from: data)
+        let content = decoded.choices.first?.message.content?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !content.isEmpty else { throw ChatError.empty }
+        return content
+    }
+
+    private static func message(from data: Data, hiding secret: String) -> String {
+        let decoded = (try? JSONDecoder().decode(APIErrorBody.self, from: data))?.error?.message
+        let text = (decoded ?? String(data: data, encoding: .utf8) ?? "")
+            .replacingOccurrences(of: secret, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return "모델 응답을 읽지 못했습니다" }
+        return String(text.prefix(90))
+    }
+}
+
+private struct APIChatBody: Encodable {
+    var model: String
+    var messages: [OllamaMessage]
+    var temperature: Double
+    var maxTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case temperature
+        case maxTokens = "max_tokens"
+    }
+}
+
+private struct APIChatResponse: Decodable {
+    struct Choice: Decodable {
+        struct Message: Decodable {
+            var content: String?
+        }
+
+        var message: Message
+    }
+
+    var choices: [Choice]
+}
+
+private struct APIErrorBody: Decodable {
+    struct Detail: Decodable {
+        var message: String?
+    }
+
+    var error: Detail?
+}
+
 final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     let director: FaceDirector
     @Published var draft = ""
@@ -165,7 +386,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
 
     private let speech = AVSpeechSynthesizer()
     private var history: [OllamaMessage] = []
-    private var model: String?
+    private var backend: ChatBackend?
     private var turn = 0
     private var speakingTurn = 0
 
@@ -178,14 +399,14 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
     func prepare() {
         Task { [weak self] in
             do {
-                let name = try await OllamaClient.resolveModel()
+                let backend = try await ChatBackend.resolve()
                 DispatchQueue.main.async {
-                    self?.model = name
-                    self?.onModel?(name)
+                    self?.backend = backend
+                    self?.onModel?(backend.label)
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self?.onModel?("Ollama 없음")
+                    self?.onModel?(ChatSession.note(for: error))
                 }
             }
         }
@@ -204,16 +425,16 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         director.setEmotion(.curious)
         history.append(OllamaMessage(role: "user", content: text))
         let historySnapshot = history
-        let knownModel = model
+        let knownBackend = backend
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let model = try await self.currentModel(known: knownModel)
-                let raw = try await OllamaClient.complete(model: model, history: historySnapshot)
+                let backend = try await self.currentBackend(known: knownBackend)
+                let raw = try await backend.complete(history: historySnapshot)
                 let reply = ReplyParser.parse(raw)
                 DispatchQueue.main.async {
-                    self.remember(model)
+                    self.remember(backend)
                     self.receive(reply, turn: turn)
                 }
             } catch {
@@ -231,15 +452,15 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         }
     }
 
-    private func currentModel(known: String?) async throws -> String {
+    private func currentBackend(known: ChatBackend?) async throws -> ChatBackend {
         if let known { return known }
-        return try await OllamaClient.resolveModel()
+        return try await ChatBackend.resolve()
     }
 
-    private func remember(_ name: String) {
-        guard model != name else { return }
-        model = name
-        onModel?(name)
+    private func remember(_ backend: ChatBackend) {
+        guard self.backend != backend else { return }
+        self.backend = backend
+        onModel?(backend.label)
     }
 
     private func receive(_ reply: SpokenReply, turn: Int) {
@@ -298,20 +519,28 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
     }
 
     private static func note(for error: Error) -> String {
-        guard let error = error as? OllamaError else {
+        guard let error = error as? ChatError else {
             return "답을 받지 못했습니다"
         }
         switch error {
-        case .unreachable:
+        case .ollamaDown:
             return "Ollama가 실행 중이 아닙니다"
+        case .apiDown:
+            return "API에 연결하지 못했습니다"
         case .timedOut:
             return "응답이 너무 오래 걸립니다"
         case .noModel:
             return "설치된 모델이 없습니다"
         case .empty:
             return "빈 응답이 왔습니다"
-        case .server:
-            return "모델 응답을 읽지 못했습니다"
+        case .unauthorized:
+            return "API 키가 올바르지 않습니다"
+        case .missingAPIKey:
+            return "AI_API_KEY가 없습니다"
+        case .missingModelName:
+            return "AI_MODEL이 없습니다"
+        case .server(let detail):
+            return detail
         }
     }
 }

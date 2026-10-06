@@ -2,3 +2,4 @@
 .preview/
 .DS_Store
 FaceMask.app
+.env
