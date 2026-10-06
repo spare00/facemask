@@ -10,8 +10,17 @@ struct SpokenReply {
 }
 
 enum ReplyParser {
+    private struct Payload: Decodable {
+        var emotion: String
+        var speech: String
+    }
+
     static func parse(_ raw: String) -> SpokenReply {
         let stripped = stripThinking(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let payload = payload(in: stripped) {
+            let emotion = FaceEmotion.parse(payload.emotion) ?? .calm
+            return SpokenReply(emotion: emotion, speech: spoken(payload.speech))
+        }
         let lines = stripped
             .split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -25,9 +34,49 @@ enum ReplyParser {
             if pieces.count > 1 {
                 speech = (pieces[1] + " " + speech).trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            return SpokenReply(emotion: emotion, speech: speech)
+            return SpokenReply(emotion: emotion, speech: spoken(speech))
         }
-        return SpokenReply(emotion: .calm, speech: stripped)
+        return SpokenReply(emotion: .calm, speech: spoken(stripped))
+    }
+
+    private static func payload(in text: String) -> Payload? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
+        let slice = String(text[start...end])
+        guard let data = slice.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(Payload.self, from: data)
+    }
+
+    private static func spoken(_ text: String) -> String {
+        var value = stripNotes(text)
+        if let regex = try? NSRegularExpression(pattern: "(?s)```.*?```") {
+            let range = NSRange(value.startIndex..., in: value)
+            value = regex.stringByReplacingMatches(in: value, range: range, withTemplate: "")
+        }
+        let lines = value.split(whereSeparator: \.isNewline).filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("|") { return false }
+            if trimmed.hasPrefix("```") { return false }
+            if trimmed.hasPrefix("![") { return false }
+            return true
+        }
+        return lines.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func stripNotes(_ text: String) -> String {
+        var value = text
+        let patterns = [
+            #"\[[^\]]*\]\([^)]*\)"#,
+            #"https?://\S+"#,
+            #"【[^】]*】"#,
+            #"\([^)]{0,40}https?://[^)]*\)"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(value.startIndex..., in: value)
+            value = regex.stringByReplacingMatches(in: value, range: range, withTemplate: "")
+        }
+        return value
     }
 
     private static func stripThinking(_ text: String) -> String {
@@ -301,6 +350,14 @@ private enum APIClient {
     ) async throws -> String {
         var messages = [OllamaMessage(role: "system", content: OllamaClient.systemPrompt)]
         messages.append(contentsOf: history)
+        if canSearch(model), let responses = responsesURL(from: endpoint) {
+            return try await searchedReply(
+                endpoint: responses,
+                apiKey: apiKey,
+                model: model,
+                history: history
+            )
+        }
         let body = APIChatBody.make(model: model, messages: messages)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -330,6 +387,79 @@ private enum APIClient {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !content.isEmpty else { throw ChatError.empty }
         return content
+    }
+
+    private static func searchedReply(
+        endpoint: URL,
+        apiKey: String,
+        model: String,
+        history: [OllamaMessage]
+    ) async throws -> String {
+        let body = ResponsesBody(
+            model: model,
+            instructions: """
+            너는 얼굴이 있는 대화 상대다. 답은 speech에 넣을 말만 텍스트로 쓴다.
+            speech는 끝까지 마친 문장으로 된 평범한 텍스트다. 코드, 차트, 표, 목록, 제목, 주소, 마크다운은 넣지 않는다.
+            emotion은 calm, curious, surprised, skeptical, concerned 중 하나다.
+            최신 사실, 뉴스, 날씨, 시세처럼 지금 확인이 필요한 질문이면 웹 검색을 한다.
+            이미 아는 일상 대화에는 검색하지 않는다.
+            검색 결과는 판단에만 쓰고, speech에는 상대에게 할 말만 남긴다.
+            """,
+            input: history,
+            tools: [ResponsesBody.Tool()],
+            reasoning: ResponsesBody.Reasoning(effort: "none"),
+            maxOutputTokens: 800,
+            text: ResponsesBody.TextOutput()
+        )
+        let data = try await send(body, to: endpoint, apiKey: apiKey, timeout: 90)
+        let decoded = try JSONDecoder().decode(ResponsesResult.self, from: data)
+        let text = (decoded.output ?? [])
+            .filter { $0.type == "message" }
+            .flatMap { $0.content ?? [] }
+            .compactMap(\.text)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { throw ChatError.empty }
+        return text
+    }
+
+    private static func send(_ body: some Encodable, to endpoint: URL, apiKey: String, timeout: TimeInterval) async throws -> Data {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw ChatError.timedOut
+        } catch {
+            throw ChatError.apiDown
+        }
+        guard let http = response as? HTTPURLResponse else { throw ChatError.apiDown }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw ChatError.unauthorized
+        }
+        guard http.statusCode == 200 else {
+            throw ChatError.server(message(from: data, hiding: apiKey))
+        }
+        return data
+    }
+
+    private static func canSearch(_ model: String) -> Bool {
+        let name = model.lowercased()
+        if name.contains("search-api") { return false }
+        return name.contains("gpt-5") || name.contains("gpt-6")
+    }
+
+    private static func responsesURL(from chatEndpoint: URL) -> URL? {
+        let text = chatEndpoint.absoluteString
+        let suffix = "/chat/completions"
+        guard text.hasSuffix(suffix) else { return nil }
+        return URL(string: String(text.dropLast(suffix.count)) + "/responses")
     }
 
     private static func message(from data: Data, hiding secret: String) -> String {
@@ -395,6 +525,91 @@ private struct APIChatBody: Encodable {
         return name.contains("gpt-5") || name.contains("gpt-6")
             || name.contains("o1") || name.contains("o3") || name.contains("o4")
     }
+}
+
+private struct ResponsesBody: Encodable {
+    struct Tool: Encodable {
+        var type = "web_search"
+        var searchContextSize = "low"
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case searchContextSize = "search_context_size"
+        }
+    }
+
+    struct Reasoning: Encodable {
+        var effort: String
+    }
+
+    struct TextOutput: Encodable {
+        var format = SpokenFormat()
+    }
+
+    struct SpokenFormat: Encodable {
+        var type = "json_schema"
+        var name = "spoken_reply"
+        var strict = true
+        var schema = SpokenJSONSchema()
+    }
+
+    struct SpokenJSONSchema: Encodable {
+        var type = "object"
+        var additionalProperties = false
+        var properties = Properties()
+        var required = ["emotion", "speech"]
+
+        struct Properties: Encodable {
+            var emotion = EmotionField()
+            var speech = SpeechField()
+        }
+
+        struct EmotionField: Encodable {
+            var type = "string"
+            var choices = ["calm", "curious", "surprised", "skeptical", "concerned"]
+
+            enum CodingKeys: String, CodingKey {
+                case type
+                case choices = "enum"
+            }
+        }
+
+        struct SpeechField: Encodable {
+            var type = "string"
+            var description = "상대에게 소리 내어 할 말. 끝까지 마친 문장으로 된 평범한 텍스트. 코드, 차트, 표, 목록, 주소, 마크다운은 넣지 않는다."
+        }
+    }
+
+    var model: String
+    var instructions: String
+    var input: [OllamaMessage]
+    var tools: [Tool]
+    var reasoning: Reasoning
+    var maxOutputTokens: Int
+    var text = TextOutput()
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case instructions
+        case input
+        case tools
+        case reasoning
+        case maxOutputTokens = "max_output_tokens"
+        case text
+    }
+}
+
+private struct ResponsesResult: Decodable {
+    struct Item: Decodable {
+        struct Part: Decodable {
+            var text: String?
+        }
+
+        var type: String?
+        var content: [Part]?
+    }
+
+    var output: [Item]?
 }
 
 private struct APIChatResponse: Decodable {
