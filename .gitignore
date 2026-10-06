@@ -1,0 +1,4 @@
+.build/
+.preview/
+.DS_Store
+FaceMask.app
