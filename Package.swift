@@ -8,6 +8,16 @@ let package = Package(
         .macOS(.v14)
     ],
     targets: [
-        .executableTarget(name: "FaceMask")
+        .executableTarget(
+            name: "FaceMask",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Support/Info.plist"
+                ])
+            ]
+        )
     ]
 )

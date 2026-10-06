@@ -274,7 +274,7 @@ struct FaceScreen: View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 FaceCanvas(pose: director.pose)
-                FaceDragPad(acceptsClick: !chat.busy) {
+                FaceDragPad(acceptsClick: !chat.busy && !chat.listening) {
                     director.cycle()
                 }
                 .frame(width: FaceLayout.width, height: FaceLayout.height)
@@ -295,11 +295,25 @@ struct FaceScreen: View {
             }
             .frame(width: FaceLayout.width, height: FaceLayout.height)
 
-            LineField(text: $chat.draft, isEnabled: !chat.busy) {
-                chat.send()
+            HStack(spacing: 6) {
+                Button {
+                    chat.toggleListen()
+                } label: {
+                    Image(systemName: chat.voiceSession ? "waveform" : "mic.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 20)
+                }
+                .buttonStyle(.plain)
+                .disabled(chat.busy && !chat.voiceSession)
+                .help(chat.voiceSession ? "음성 입력을 끝낸다" : "말로 대화")
+
+                LineField(text: $chat.draft, isEnabled: !chat.busy && !chat.listening) {
+                    chat.send()
+                }
+                .frame(height: 20)
             }
-            .frame(height: 20)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(Color.black.opacity(0.62))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))

@@ -381,14 +381,19 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
     @Published var draft = ""
     @Published var note = ""
     @Published var busy = false
+    @Published var listening = false
+    @Published var voiceSession = false
 
     var onModel: ((String) -> Void)?
 
     private let speech = AVSpeechSynthesizer()
+    private let listener = SpeechListener()
     private var history: [OllamaMessage] = []
     private var backend: ChatBackend?
     private var turn = 0
     private var speakingTurn = 0
+    private var silence: DispatchWorkItem?
+    private var listenDeadline: DispatchWorkItem?
 
     init(director: FaceDirector) {
         self.director = director
@@ -420,6 +425,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         busy = true
         turn += 1
         let turn = self.turn
+        stopListening()
         speech.stopSpeaking(at: .immediate)
         director.setMode(.thinking)
         director.setEmotion(.curious)
@@ -442,6 +448,107 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
                     self.fail(error, turn: turn)
                 }
             }
+        }
+    }
+
+    func toggleListen() {
+        if voiceSession {
+            endVoiceSession()
+        } else {
+            voiceSession = true
+            startListen()
+        }
+    }
+
+    private func startListen() {
+        guard voiceSession, !busy, !listening else { return }
+        listening = true
+        note = "듣는 중"
+        draft = ""
+        speech.stopSpeaking(at: .immediate)
+        director.setMode(.idle)
+        director.setEmotion(.curious)
+        armListenDeadline()
+        listener.start { [weak self] text in
+            guard let self, self.listening else { return }
+            self.draft = text
+            self.listenDeadline?.cancel()
+            self.armSilence()
+        } onError: { [weak self] message in
+            guard let self, self.listening else { return }
+            if self.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.endVoiceSession()
+                self.note = message
+                self.scheduleClearNote()
+            } else {
+                self.finishListen(send: true)
+            }
+        }
+    }
+
+    private func finishListen(send shouldSend: Bool) {
+        guard listening else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        stopListening()
+        guard shouldSend, !text.isEmpty else {
+            voiceSession = false
+            draft = ""
+            note = ""
+            director.setMode(.idle)
+            director.setEmotion(nil)
+            return
+        }
+        draft = text
+        send()
+    }
+
+    private func endVoiceSession() {
+        voiceSession = false
+        let wasListening = listening
+        stopListening()
+        guard wasListening else { return }
+        draft = ""
+        note = ""
+        director.setMode(.idle)
+        director.setEmotion(nil)
+    }
+
+    private func stopListening() {
+        listening = false
+        silence?.cancel()
+        listenDeadline?.cancel()
+        listener.stop()
+    }
+
+    private func armSilence() {
+        silence?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.finishListen(send: true)
+        }
+        silence = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
+    }
+
+    private func armListenDeadline() {
+        listenDeadline?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.listening else { return }
+            if self.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.endVoiceSession()
+                self.note = "음성 입력을 마쳤습니다"
+                self.scheduleClearNote()
+                return
+            }
+            self.finishListen(send: true)
+        }
+        listenDeadline = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
+    }
+
+    private func scheduleClearNote() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
+            guard let self, !self.listening, !self.busy else { return }
+            self.note = ""
         }
     }
 
@@ -512,10 +619,25 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
 
     private func finishTurn(_ turn: Int) {
         guard turn == self.turn else { return }
+        if listening {
+            busy = false
+            return
+        }
+        if speech.isSpeaking {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.finishTurn(turn)
+            }
+            return
+        }
+        busy = false
         director.setMode(.idle)
         director.setEmotion(nil)
         note = ""
-        busy = false
+        guard voiceSession else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, self.voiceSession, self.turn == turn, !self.busy, !self.listening else { return }
+            self.startListen()
+        }
     }
 
     private static func note(for error: Error) -> String {
