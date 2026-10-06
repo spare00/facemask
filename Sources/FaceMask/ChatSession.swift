@@ -355,7 +355,11 @@ struct LineField: NSViewRepresentable {
         if field.stringValue != text {
             field.stringValue = text
         }
+        let becameEnabled = isEnabled && !field.isEnabled
         field.isEnabled = isEnabled
+        if becameEnabled {
+            field.restoreFocus()
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -383,6 +387,15 @@ final class EntryField: NSTextField {
         NSApp.activate()
         window?.makeKey()
         super.mouseDown(with: event)
+    }
+
+    func restoreFocus() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isEnabled, let window = self.window else { return }
+            NSApp.activate()
+            window.makeKey()
+            window.makeFirstResponder(self)
+        }
     }
 }
 
