@@ -698,6 +698,10 @@ struct LineField: NSViewRepresentable {
         field.cell?.sendsActionOnEndEditing = false
         field.cell?.wraps = false
         field.cell?.isScrollable = true
+        field.isAutomaticTextCompletionEnabled = false
+        if #available(macOS 15.2, *) {
+            field.allowsWritingTools = false
+        }
         return field
     }
 

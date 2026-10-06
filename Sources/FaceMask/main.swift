@@ -4,6 +4,7 @@ import SwiftUI
 @main
 enum FaceMaskMain {
     static func main() {
+        UserDefaults.standard.set(false, forKey: "NSAutoFillHeuristicControllerEnabled")
         if CommandLine.arguments.contains("--snapshot") {
             let path = snapshotPath()
             _ = NSApplication.shared

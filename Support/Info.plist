@@ -24,5 +24,7 @@
 	<string>말로 대화하려고 마이크를 사용합니다.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>말한 내용을 글로 바꾸려고 음성 인식을 사용합니다.</string>
+	<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac</key>
+	<true/>
 </dict>
 </plist>
