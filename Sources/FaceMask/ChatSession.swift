@@ -301,7 +301,7 @@ private enum APIClient {
     ) async throws -> String {
         var messages = [OllamaMessage(role: "system", content: OllamaClient.systemPrompt)]
         messages.append(contentsOf: history)
-        let body = APIChatBody(model: model, messages: messages, temperature: 0.7, maxTokens: 400)
+        let body = APIChatBody.make(model: model, messages: messages)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
@@ -345,14 +345,55 @@ private enum APIClient {
 private struct APIChatBody: Encodable {
     var model: String
     var messages: [OllamaMessage]
-    var temperature: Double
-    var maxTokens: Int
+    var temperature: Double?
+    var maxTokens: Int?
+    var maxCompletionTokens: Int?
+    var reasoningEffort: String?
 
     enum CodingKeys: String, CodingKey {
         case model
         case messages
         case temperature
         case maxTokens = "max_tokens"
+        case maxCompletionTokens = "max_completion_tokens"
+        case reasoningEffort = "reasoning_effort"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encodeIfPresent(maxTokens, forKey: .maxTokens)
+        try container.encodeIfPresent(maxCompletionTokens, forKey: .maxCompletionTokens)
+        try container.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
+    }
+
+    static func make(model: String, messages: [OllamaMessage]) -> APIChatBody {
+        if usesFixedSampling(model) {
+            return APIChatBody(
+                model: model,
+                messages: messages,
+                temperature: nil,
+                maxTokens: nil,
+                maxCompletionTokens: 400,
+                reasoningEffort: "none"
+            )
+        }
+        return APIChatBody(
+            model: model,
+            messages: messages,
+            temperature: 0.7,
+            maxTokens: 400,
+            maxCompletionTokens: nil,
+            reasoningEffort: nil
+        )
+    }
+
+    private static func usesFixedSampling(_ model: String) -> Bool {
+        let name = model.lowercased()
+        return name.contains("gpt-5") || name.contains("gpt-6")
+            || name.contains("o1") || name.contains("o3") || name.contains("o4")
     }
 }
 
