@@ -34,6 +34,8 @@ struct FaceCanvas: View {
             )
             ink(nose(cx: cx, eyeY: eyeY, mouthY: mouthY), width: inkWidth * 0.9, in: &context)
             ink(mouth(cx: cx, y: mouthY, pose: pose, size: size), width: inkWidth, in: &context)
+            driftingZ(cx: cx, mouthY: mouthY, progress: pose.zzz, scale: 1, size: size, in: &context)
+            driftingZ(cx: cx + size.width * 0.045, mouthY: mouthY - size.height * 0.03, progress: pose.zzz2, scale: 0.72, size: size, in: &context)
 
             let leftEye = CGPoint(x: cx - spread, y: eyeY)
             let rightEye = CGPoint(x: cx + spread, y: eyeY)
@@ -166,9 +168,44 @@ private func mouth(cx: CGFloat, y: CGFloat, pose: FacePose, size: CGSize) -> Pat
     return path
 }
 
-private func ink(_ path: Path, width: CGFloat, in context: inout GraphicsContext) {
+private func driftingZ(
+    cx: CGFloat,
+    mouthY: CGFloat,
+    progress: CGFloat,
+    scale: CGFloat,
+    size: CGSize,
+    in context: inout GraphicsContext
+) {
+    guard progress > 0, progress < 1 else { return }
+    let rise = progress * size.height * 0.18
+    let alpha = sin(progress * .pi)
+    let origin = CGPoint(
+        x: cx + size.width * 0.14,
+        y: mouthY - size.height * 0.06 - rise
+    )
+    ink(
+        zed(origin: origin, size: size.width * 0.05 * scale),
+        width: max(1.7, size.width * 0.007),
+        alpha: alpha,
+        in: &context
+    )
+}
+
+private func zed(origin: CGPoint, size: CGFloat) -> Path {
+    let w = size
+    let h = size * 0.78
+    var path = Path()
+    path.move(to: CGPoint(x: origin.x, y: origin.y))
+    path.addLine(to: CGPoint(x: origin.x + w, y: origin.y))
+    path.addLine(to: CGPoint(x: origin.x, y: origin.y + h))
+    path.addLine(to: CGPoint(x: origin.x + w, y: origin.y + h))
+    return path
+}
+
+private func ink(_ path: Path, width: CGFloat, alpha: CGFloat = 1, in context: inout GraphicsContext) {
+    let clamped = min(1, max(0, alpha))
     let halo = StrokeStyle(lineWidth: width + 2.4, lineCap: .round, lineJoin: .round)
     let core = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
-    context.stroke(path, with: .color(.black.opacity(0.58)), style: halo)
-    context.stroke(path, with: .color(Color(white: 0.97)), style: core)
+    context.stroke(path, with: .color(.black.opacity(0.58 * clamped)), style: halo)
+    context.stroke(path, with: .color(Color(white: 0.97).opacity(clamped)), style: core)
 }

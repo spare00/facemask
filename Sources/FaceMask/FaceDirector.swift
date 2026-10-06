@@ -88,6 +88,9 @@ struct FacePose: Equatable {
     /// Positive looks up. Canvas Y grows downward.
     var lookY: CGFloat
     var bob: CGFloat = 0
+    /// 0 hides the mark. 1 is the top of a snore, where it fades out.
+    var zzz: CGFloat = 0
+    var zzz2: CGFloat = 0
 
     static let idle = FacePose(
         eyeOpen: 0.90,
@@ -145,6 +148,9 @@ final class FaceDirector: ObservableObject {
     private var browTarget = FaceEmotion.calm.brows
     private var nextBrow = Date()
 
+    private var restBegan: Date?
+    private let restAfter: TimeInterval = 20
+
     func start() {
         started = Date()
         lastTick = started
@@ -190,6 +196,14 @@ final class FaceDirector: ObservableObject {
         let now = Date()
         let dt = min(0.05, now.timeIntervalSince(lastTick))
         lastTick = now
+        let resting = mode == .idle && emotion == nil
+        if resting {
+            if restBegan == nil { restBegan = now }
+        } else {
+            restBegan = nil
+        }
+        let restTime = restBegan.map { now.timeIntervalSince($0) - restAfter } ?? -1
+
         updateBlink(now)
         updateGaze(now, dt: dt)
         updateBrows(now, dt: dt)
@@ -197,16 +211,96 @@ final class FaceDirector: ObservableObject {
         let target = targetPose(at: now.timeIntervalSince(started))
         base = approach(base, target, dt: dt)
         var shown = base
-        shown.eyeOpen *= (1 - blink)
-        shown.lookX = gaze.x
-        shown.lookY = gaze.y
-        shown.browLift = brow.lift
-        shown.browPinch = brow.pinch
-        shown.browBias = brow.bias
-        if mode == .speaking, emotion == nil {
-            shown.browLift += max(0, shown.mouthOpen - 0.35) * 0.2
+        if restTime > 0 {
+            applyRest(&shown, time: restTime)
+            base = shown
+            brow = BrowPose(lift: shown.browLift, pinch: shown.browPinch, bias: shown.browBias)
+            browTarget = brow
+            gaze = CGPoint(x: shown.lookX, y: shown.lookY)
+            gazeTarget = gaze
+            if restTime < 3.4 {
+                shown.eyeOpen *= (1 - blink)
+            }
+        } else {
+            shown.eyeOpen *= (1 - blink)
+            shown.lookX = gaze.x
+            shown.lookY = gaze.y
+            shown.browLift = brow.lift
+            shown.browPinch = brow.pinch
+            shown.browBias = brow.bias
+            if mode == .speaking, emotion == nil {
+                shown.browLift += max(0, shown.mouthOpen - 0.35) * 0.2
+            }
         }
         pose = shown
+    }
+
+    private func applyRest(_ pose: inout FacePose, time: TimeInterval) {
+        if time < 3.4 {
+            let u = ease(CGFloat(min(1, time / 3.4)))
+            pose.eyeOpen = 0.90 * (1 - u) + 0.42 * u
+            pose.mouthCurve = 0.30 * (1 - u)
+            pose.mouthOpen = 0
+            pose.browLift = 0.10 * (1 - u) - 0.08 * u
+            pose.browPinch = 0.22 * u
+            pose.browBias = 0
+            pose.lookX = 0
+            pose.lookY = -0.28 * u
+            pose.bob = CGFloat(sin(time * 1.15)) * (2 + u * 1.4)
+            pose.zzz = 0
+            pose.zzz2 = 0
+            return
+        }
+        if time < 6.2 {
+            let u = CGFloat((time - 3.4) / 2.8)
+            let yawn = sin(u * .pi)
+            pose.eyeOpen = 0.34 * (1 - yawn) + 0.04 * yawn
+            pose.mouthOpen = yawn * 0.98
+            pose.mouthCurve = 0.04
+            pose.browLift = -0.06 + yawn * 0.5
+            pose.browPinch = 0.12 * (1 - yawn)
+            pose.browBias = 0
+            pose.lookX = 0
+            pose.lookY = -0.16
+            pose.bob = CGFloat(sin(time * 1.25)) * 2.4
+            pose.zzz = 0
+            pose.zzz2 = 0
+            return
+        }
+
+        let local = (time - 6.2).truncatingRemainder(dividingBy: 16)
+        pose.eyeOpen = 0.045
+        pose.browLift = -0.16
+        pose.browPinch = 0.06
+        pose.browBias = 0
+        pose.lookX = 0
+        pose.lookY = 0
+        pose.mouthCurve = 0.06
+        let breath = CGFloat(sin(time * 1.35))
+        pose.bob = breath * 4.2
+        guard local >= 9 else {
+            pose.mouthOpen = 0.03 + max(0, breath) * 0.05
+            pose.zzz = 0
+            pose.zzz2 = 0
+            return
+        }
+
+        let snoreT = local - 9
+        func puff(_ center: Double) -> CGFloat {
+            let d = snoreT - center
+            guard d >= -0.05, d < 1.25 else { return 0 }
+            let u = (d + 0.05) / 1.3
+            let shaped = u < 0.35 ? u / 0.35 : (1 - u) / 0.65
+            return CGFloat(max(0, min(1, shaped)))
+        }
+        func zProgress(_ center: Double) -> CGFloat {
+            let d = snoreT - center
+            guard d >= 0.08, d < 1.7 else { return 0 }
+            return CGFloat((d - 0.08) / 1.62)
+        }
+        pose.mouthOpen = max(puff(1.0), puff(4.0)) * 0.68
+        pose.zzz = max(zProgress(1.0), zProgress(4.0))
+        pose.zzz2 = max(zProgress(1.42), zProgress(4.42))
     }
 
     private func targetPose(at time: TimeInterval) -> FacePose {
@@ -243,7 +337,9 @@ final class FaceDirector: ObservableObject {
             mouthOpen: mix(current.mouthOpen, target.mouthOpen),
             lookX: mix(current.lookX, target.lookX),
             lookY: mix(current.lookY, target.lookY),
-            bob: mix(current.bob, target.bob)
+            bob: mix(current.bob, target.bob),
+            zzz: mix(current.zzz, target.zzz),
+            zzz2: mix(current.zzz2, target.zzz2)
         )
     }
 
