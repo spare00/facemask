@@ -63,18 +63,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let director: FaceDirector
     private let chat: ChatSession
     private let looks: FaceLooks
+    private let speechLanguages: SpeechLanguages
     private var panel: NSPanel?
     private var statusItem: NSStatusItem?
     private var modeItems: [FaceMode: NSMenuItem] = [:]
     private var emotionItems: [Int: NSMenuItem] = [:]
     private var lookItems: [FaceLook: NSMenuItem] = [:]
+    private var speechItems: [SpeechLanguage: NSMenuItem] = [:]
     private var modelItem: NSMenuItem?
+    private var visibilityItem: NSMenuItem?
 
     override init() {
         let director = FaceDirector()
         self.director = director
         chat = ChatSession(director: director)
         looks = FaceLooks()
+        speechLanguages = SpeechLanguages()
         super.init()
     }
 
@@ -88,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         chat.onModel = { [weak self] name in
             self?.modelItem?.title = name
         }
+        chat.useSpeechLanguage(speechLanguages.current)
         setupEditMenu()
         setupStatusItem()
         setupPanel()
@@ -155,7 +160,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(.separator())
         menu.addItem(emotionMenuItem())
         menu.addItem(lookMenuItem())
+        menu.addItem(speechMenuItem())
         menu.addItem(.separator())
+        let visibility = NSMenuItem(
+            title: "Hide",
+            action: #selector(toggleVisibility(_:)),
+            keyEquivalent: ""
+        )
+        visibility.target = self
+        visibilityItem = visibility
+        menu.addItem(visibility)
         let quit = NSMenuItem(
             title: "Quit",
             action: #selector(NSApplication.terminate(_:)),
@@ -213,6 +227,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         panel.orderFrontRegardless()
         self.panel = panel
+    }
+
+    @objc private func toggleVisibility(_ sender: NSMenuItem) {
+        guard let panel else { return }
+        if panel.isVisible {
+            panel.orderOut(nil)
+            sender.title = "Show"
+            statusItem?.button?.toolTip = "FaceMask (hidden)"
+        } else {
+            panel.orderFrontRegardless()
+            sender.title = "Hide"
+            statusItem?.button?.toolTip = "FaceMask"
+        }
     }
 
     private func emotionMenuItem() -> NSMenuItem {
@@ -283,6 +310,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = NSMenuItem(title: "Face", action: nil, keyEquivalent: "")
         root.submenu = submenu
         return root
+    }
+
+    private func speechMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        for (index, language) in SpeechLanguage.allCases.enumerated() {
+            let item = NSMenuItem(
+                title: language.title,
+                action: #selector(selectSpeech(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.tag = index
+            item.state = language == speechLanguages.current ? .on : .off
+            speechItems[language] = item
+            submenu.addItem(item)
+        }
+        let root = NSMenuItem(title: "Voice", action: nil, keyEquivalent: "")
+        root.submenu = submenu
+        return root
+    }
+
+    @objc private func selectSpeech(_ sender: NSMenuItem) {
+        let cases = SpeechLanguage.allCases
+        guard sender.tag >= 0, sender.tag < cases.count else { return }
+        let language = cases[sender.tag]
+        speechLanguages.select(language)
+        chat.useSpeechLanguage(language)
+        for (itemLanguage, item) in speechItems {
+            item.state = itemLanguage == language ? .on : .off
+        }
     }
 
     @objc private func selectLook(_ sender: NSMenuItem) {

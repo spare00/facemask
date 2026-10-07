@@ -193,16 +193,17 @@ enum ChatBackend: Equatable {
         return .ollama(model: model)
     }
 
-    func complete(history: [OllamaMessage]) async throws -> String {
+    func complete(history: [OllamaMessage], language: SpeechLanguage) async throws -> String {
         switch self {
         case .ollama(let model):
-            return try await OllamaClient.complete(model: model, history: history)
+            return try await OllamaClient.complete(model: model, history: history, language: language)
         case .api(let endpoint, let apiKey, let model):
             return try await APIClient.complete(
                 endpoint: endpoint,
                 apiKey: apiKey,
                 model: model,
-                history: history
+                history: history,
+                language: language
             )
         }
     }
@@ -239,12 +240,15 @@ enum OllamaClient {
     private static let tagsURL = URL(string: "http://127.0.0.1:11434/api/tags")!
     private static let preferred = ["qwen3:latest", "qwen2.5:14b", "qwen2.5:14b-ctx"]
 
-    static let systemPrompt = """
-    You are a face the user talks to. Always answer in this format only.
-    The first line is one emotion word and nothing else. Use only one of: calm, curious, surprised, skeptical, concerned
-    From the next line, write what you will say. One or two short sentences, in English.
-    Do not put anything except the emotion word on the first line.
-    """
+    static func systemPrompt(language: SpeechLanguage) -> String {
+        """
+        You are a face the user talks to. Always answer in this format only.
+        The first line is one emotion word and nothing else. Use only one of: calm, curious, surprised, skeptical, concerned
+        From the next line, write what you will say. One or two short sentences.
+        \(language.answerRule)
+        Do not put anything except the emotion word on the first line.
+        """
+    }
 
     static func resolveModel() async throws -> String {
         if let chosen = ProcessInfo.processInfo.environment["FACEMASK_MODEL"], !chosen.isEmpty {
@@ -258,8 +262,8 @@ enum OllamaClient {
         return first
     }
 
-    static func complete(model: String, history: [OllamaMessage]) async throws -> String {
-        var messages = [OllamaMessage(role: "system", content: systemPrompt)]
+    static func complete(model: String, history: [OllamaMessage], language: SpeechLanguage) async throws -> String {
+        var messages = [OllamaMessage(role: "system", content: systemPrompt(language: language))]
         messages.append(contentsOf: history)
         let body = ChatBody(
             model: model,
@@ -346,16 +350,18 @@ private enum APIClient {
         endpoint: URL,
         apiKey: String,
         model: String,
-        history: [OllamaMessage]
+        history: [OllamaMessage],
+        language: SpeechLanguage
     ) async throws -> String {
-        var messages = [OllamaMessage(role: "system", content: OllamaClient.systemPrompt)]
+        var messages = [OllamaMessage(role: "system", content: OllamaClient.systemPrompt(language: language))]
         messages.append(contentsOf: history)
         if canSearch(model), let responses = responsesURL(from: endpoint) {
             return try await searchedReply(
                 endpoint: responses,
                 apiKey: apiKey,
                 model: model,
-                history: history
+                history: history,
+                language: language
             )
         }
         let body = APIChatBody.make(model: model, messages: messages)
@@ -393,12 +399,13 @@ private enum APIClient {
         endpoint: URL,
         apiKey: String,
         model: String,
-        history: [OllamaMessage]
+        history: [OllamaMessage],
+        language: SpeechLanguage
     ) async throws -> String {
-        let body = ResponsesBody(
+        var body = ResponsesBody(
             model: model,
             instructions: """
-            You are a face the user talks to. Reply in English. Put only the words you will speak into speech.
+            You are a face the user talks to. \(language.answerRule) Put only the words you will speak into speech.
             speech is plain text made of finished sentences. Do not include code, charts, tables, lists, headings, URLs, or markdown.
             emotion is one of calm, curious, surprised, skeptical, concerned.
             Search the web when the question needs current facts, news, weather, or prices.
@@ -411,6 +418,7 @@ private enum APIClient {
             maxOutputTokens: 800,
             text: ResponsesBody.TextOutput()
         )
+        body.text.format.schema.properties.speech.description = language.speechFieldDescription
         let data = try await send(body, to: endpoint, apiKey: apiKey, timeout: 90)
         let decoded = try JSONDecoder().decode(ResponsesResult.self, from: data)
         let text = (decoded.output ?? [])
@@ -576,7 +584,7 @@ private struct ResponsesBody: Encodable {
 
         struct SpeechField: Encodable {
             var type = "string"
-            var description = "The words to speak aloud, in English. Plain text of finished sentences. Do not include code, charts, tables, lists, URLs, or markdown."
+            var description = "The words to speak aloud. Plain text of finished sentences. Do not include code, charts, tables, lists, URLs, or markdown."
         }
     }
 
@@ -644,6 +652,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
 
     private let speech = AVSpeechSynthesizer()
     private let listener = SpeechListener()
+    private var speechLanguage = SpeechLanguage.automatic
     private var history: [OllamaMessage] = []
     private var backend: ChatBackend?
     private var turn = 0
@@ -688,16 +697,17 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         history.append(OllamaMessage(role: "user", content: text))
         let historySnapshot = history
         let knownBackend = backend
+        let language = speechLanguage
 
         Task { [weak self] in
             guard let self else { return }
             do {
                 let backend = try await self.currentBackend(known: knownBackend)
-                let raw = try await backend.complete(history: historySnapshot)
+                let raw = try await backend.complete(history: historySnapshot, language: language)
                 let reply = ReplyParser.parse(raw)
                 DispatchQueue.main.async {
                     self.remember(backend)
-                    self.receive(reply, turn: turn)
+                    self.receive(reply, turn: turn, language: language)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -705,6 +715,14 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
                 }
             }
         }
+    }
+
+    func useSpeechLanguage(_ language: SpeechLanguage) {
+        speechLanguage = language
+        listener.localeIdentifier = language.rawValue
+        guard listening else { return }
+        stopListening()
+        startListen()
     }
 
     func toggleListen() {
@@ -826,7 +844,7 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         onModel?(backend.label)
     }
 
-    private func receive(_ reply: SpokenReply, turn: Int) {
+    private func receive(_ reply: SpokenReply, turn: Int, language: SpeechLanguage) {
         guard turn == self.turn else { return }
         let speech = reply.speech.trimmingCharacters(in: .whitespacesAndNewlines)
         history.append(OllamaMessage(role: "assistant", content: speech.isEmpty ? reply.emotion.title : speech))
@@ -844,7 +862,8 @@ final class ChatSession: NSObject, ObservableObject, AVSpeechSynthesizerDelegate
         busy = false
         let utterance = AVSpeechUtterance(string: speech)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        let voiceCode = language == .automatic ? SpeechLanguage.voiceCode(for: speech) : language.rawValue
+        utterance.voice = AVSpeechSynthesisVoice(language: voiceCode)
         self.speech.speak(utterance)
         let estimate = min(40, Double(speech.count) * 0.28 + 1.5)
         DispatchQueue.main.asyncAfter(deadline: .now() + estimate) { [weak self] in
@@ -1043,7 +1062,7 @@ final class EntryField: NSTextField {
 
     func restoreFocus() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isEnabled, let window = self.window else { return }
+            guard let self, self.isEnabled, let window = self.window, window.isVisible else { return }
             NSApp.activate()
             window.makeKey()
             window.makeFirstResponder(self)
